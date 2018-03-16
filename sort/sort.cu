@@ -30,14 +30,7 @@ int* gen(){
 }
 
 int main(){
-	int *a_h = gen();
-	int *a_d;
-	cudaMalloc((void**) &a_d, sizeof(int) * length);
-	cudaMemcpy(a_d, a_h, sizeof(int) * length,cudaMemcpyHostToDevice); 
-	pr<<<1,length>>>(a_d);
-	cudaMemcpy(a_h, a_d, sizeof(int) * length,cudaMemcpyDeviceToHost);
-	for (int i = 0; i < length; ++i)
-	{
-		printf("a_h[%d] = %d \n",i,a_h[i]);
-	}
+	
+
+
 }
