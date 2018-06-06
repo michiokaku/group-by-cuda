@@ -1,0 +1,15 @@
+option = --relocatable-device-code=true -G -g
+
+all:edit
+
+edit:bitadd.o group_by.o
+	nvcc $(option) -o edit bitadd.o group_by.o
+
+group_by.o:group_by.cu group_by.h
+	nvcc $(option) -c group_by.cu
+
+bitadd.o:../add/bitadd.cu ../add/bitadd.h
+	nvcc $(option) -c ../add/bitadd.cu
+	
+clean:
+	rm bitadd.o group_by.o edit
