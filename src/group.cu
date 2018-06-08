@@ -268,6 +268,42 @@ __global__ void gbl_bit(key_s device,unsigned char *len,int b,int length,bitadd 
     }
 }
 
+__global__ void gbc_bit(key_s device,int index,int b,bitadd ba){
+    int tid = threadIdx.x + blockIdx.x*blockDim.x;
+    __shared__ unsigned char add_shared[MAX_THREAD];
+    add_shared[threadIdx.x] = 0;
+
+    if(tid<device.point_num){
+        int point = getpiont(device,tid);
+        point += index;
+        int next_point = get_next_piont(device,tid);
+        
+        if(point < next_point){
+            add_shared[threadIdx.x] = (device.key_str[point]>>b)&1;
+        }
+
+        __syncthreads();
+
+        unsigned char r;
+
+        if(threadIdx.x <(MAX_THREAD/8)){
+            r = add_shared[(threadIdx.x*8)];
+            r |= add_shared[(threadIdx.x*8)+1]<<1;
+            r |= add_shared[(threadIdx.x*8)+2]<<2;
+            r |= add_shared[(threadIdx.x*8)+3]<<3;
+            r |= add_shared[(threadIdx.x*8)+4]<<4;
+            r |= add_shared[(threadIdx.x*8)+5]<<5;
+            r |= add_shared[(threadIdx.x*8)+6]<<6;
+            r |= add_shared[(threadIdx.x*8)+7]<<7;
+
+            tid = threadIdx.x + ((blockIdx.x*blockDim.x)/8);
+            if(tid<ba.length){
+                ba.c[tid] = r; 
+            }   
+        }
+    }
+}
+
 group group_by_length(unsigned char *len,key_s &device){//len是字符串的长度
     group gp = group_init(device.point_num);
     int length = device.point_num;
@@ -279,12 +315,50 @@ group group_by_length(unsigned char *len,key_s &device){//len是字符串的长�
         gbl_bit<<<get_block(length),MAX_THREAD>>>(device,len,7-i,length,ba);      //把第7-i位的值取出来放入ba.s中
         bit_add(ba);                       //使用bit_add函数计算出结果
         gp = group_by_bitadd(gp,ba,device);     //根据bit_add的结果分组
-//        check_group_by_length(gp,device);
     }
     return gp;
 }
 
-group group_by(database da,char *key_table){
+group group_by_char(key_s &device,group gp,int index){//index代表的是当前读取到第几个char了
+    int length = device.point_num;
+    for(int i=0;i<8;i++){   //char有八个比特，所以循环八次
+        bitadd ba;
+        ba.length = ((length-1)/8)+1;
+        if((length%8)!=0)ba.length++;
+        cudaMalloc( (void**)&ba.c,ba.length*sizeof(unsigned char));
+        gbc_bit<<<get_block(length),MAX_THREAD>>>(device,index,7-i,ba);      //把第7-i位的值取出来放入ba.s中
+        bit_add(ba);                       //使用bit_add函数计算出结果
+        gp = group_by_bitadd(gp,ba,device);     //根据bit_add的结果分组
+    }
+    return gp;
+}
+
+int getmaxlen(database da,int k){
+    int max = 0;
+
+    for(int i=0;i<da.num;i++){
+        if(max<da.ln[i].data_lenth[k])max = da.ln[i].data_lenth[k];
+    }
+    return max;
+}
+
+group group_by_string(key_s &device,group gp,int max){
+
+    for(int i=0;i<max;i++){
+        gp = group_by_char(device,gp,i);
+    }
+
+    return gp;
+}
+
+__global__ void put_sorted(key_s device,int *d_sorted){
+    int tid = threadIdx.x+blockIdx.x*blockDim.x;
+    if(tid<device.point_num){
+        d_sorted[tid] = getppiont(device,tid);
+    }
+}
+
+group group_by(database da,char *key_table,int *&sorted){
     int k = getkey(da,key_table);
     key_s device;
     key_htd(da.ln,device,da.num,k);
@@ -292,7 +366,16 @@ group group_by(database da,char *key_table){
     unsigned char *len = host_getlen(device);//首先先要获取每段字符串的长度，根据长度先分组
     check_len(len,device);
     group gp = group_by_length(len,device);//返回一个根据长度分组的结果
-    check_group_by_length(gp,device);
+
+    int max = getmaxlen(da,k);
+
+    gp = group_by_string(device,gp,max);
+
+    cudaHostAlloc( (void**)&sorted,device.point_num * sizeof(int),cudaHostAllocMapped);
+    int *d_sorted;
+    cudaHostGetDevicePointer((void **)&d_sorted, (void *)sorted, 0);
+    put_sorted<<<get_block(device.point_num),device.point_num>>>(device,d_sorted);
+
     return gp;
 }
 
@@ -370,8 +453,9 @@ int main(int argc, char * argv[]){
     getpath(argv[0],c);//工作目录与执行文件的相对路径可以根据argv[0]得到
     database da = getdata(c);//函数返回数据库
     group gp;
-    if(argc>1)gp = group_by(da,argv[1]);
-    else gp = group_by(da,key_table);
+    int *sorted;
+    if(argc>1)gp = group_by(da,argv[1],sorted);
+    else gp = group_by(da,key_table,sorted);
     int *a;
     cudaHostAlloc( (void**)&a,gp.length * sizeof(int),cudaHostAllocDefault);
     cudaMemcpy(a,gp.start,gp.length*sizeof(int),cudaMemcpyDeviceToHost);

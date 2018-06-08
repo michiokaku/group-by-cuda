@@ -36,3 +36,7 @@ void groupfree(group gp);
 group group_init(int len);
 
 void time_log();
+
+__device__ int getpiont(key_s device,int tid);
+
+__device__ int get_next_piont(key_s device,int tid);

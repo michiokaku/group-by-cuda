@@ -62,6 +62,31 @@ __device__ int getppiont(key_s device,int tid){
 	return out;
 }
 
+__device__ int getpiont(key_s device,int tid){
+    tid = getppiont(device,tid);
+    int a = device.point_length*tid;
+
+    int out = 0;
+	for(int i=0;i<device.point_length;i++){
+		out += device.point[i+a]<<(8*i);
+	}
+
+	return out;
+}
+
+__device__ int get_next_piont(key_s device,int tid){
+	tid = getppiont(device,tid);
+	int a = device.point_length*tid;
+	a++;
+
+	int out = 0;
+	for(int i=0;i<device.point_length;i++){
+		out += device.point[i+a]<<(8*i);
+	}
+
+	return out;
+}
+
 __device__ __host__ int find_group(group gp,int tid){
     int start,end;
     start = 0;
